@@ -33,76 +33,173 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f0xx_hal.h"
 #include "usb_device.h"
+#include "usbd_cdc_if.h"
 
+//i2c timeout is in interval of systemtick
+//HAL library reads as a 8 bit addresss, bitshifting required!
 
+#define I2C_MUX_ADDR 0x70<<1 //TCA9548A address
 
-
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
+//for sensor board
+#define I2C_TEMP_SENSOR_ADDR 0x18<<1 //MCP9808
+#define I2C_IO_ADDR 0x41<<1 //PCA9536
+#define I2C_COLOR_SENSOR_ADDR 0x29<<1 //TCS34725
+#define I2C_TIMEOUT 100000
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
-
-/* USER CODE BEGIN PV */
-/* Private variables ---------------------------------------------------------*/
-
-/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 
+void I2C_Change_Chanel(uint8_t chanel);
+void I2C_Flask_Sensor_Config(void);
+uint16_t I2C_Read_Temp(void);
+void I2C_Enable_Light(void);
+void I2C_Disable_Light(void);
+void I2C_Measure_Light(uint16_t colors[4]);
+
 volatile uint32_t i = 0;
-/* USER CODE BEGIN PFP */
-/* Private function prototypes -----------------------------------------------*/
+volatile uint16_t temp;
+volatile HAL_StatusTypeDef debug; 
 
-/* USER CODE END PFP */
-
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
 
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+  HAL_MspInit();
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  
   MX_I2C1_Init();
   MX_USB_DEVICE_Init();
 
-  /* USER CODE BEGIN 2 */
 
-  /* USER CODE END 2 */
+  //init board 
+  //enable power outputs
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_2|GPIO_PIN_4|GPIO_PIN_6, GPIO_PIN_SET);
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+
+
+  I2C_Change_Chanel(0);
+  I2C_Flask_Sensor_Config();
   while (1)
   {
-  /* USER CODE END WHILE */
+  
 	i++;
-  /* USER CODE BEGIN 3 */
+  HAL_Delay(500);
+  //uint8_t HiMsg[]="hello\r\n";
+  //CDC_Transmit_FS(HiMsg,strlen(HiMsg));
+  //temp = I2C_Read_Temp();
+  //I2C_Change_Chanel(0);
+  uint8_t command_buffer[2];
+
+  //configure I2C IO LED Pin (Pin 1) for output
+  command_buffer[0] = 0x03; //write command register
+  command_buffer[1] = 0xFE; //set pin 0 as an output
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
+  HAL_Delay(500);
+  I2C_Enable_Light();
+  HAL_Delay(500);
+  I2C_Disable_Light();
+
+
 
   }
-  /* USER CODE END 3 */
+
 
 }
 
-/** System Clock Configuration
-*/
+void I2C_Change_Chanel(uint8_t chanel){
+  //address I2C Mux and change I2C chanel
+  uint8_t tx_data[1];
+  tx_data[0] = (uint8_t) 1 << chanel; //select chanel to be active
+
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_MUX_ADDR, tx_data, 1, I2C_TIMEOUT);
+
+}
+
+void I2C_Flask_Sensor_Config(void){
+  
+  uint8_t command_buffer[2];
+
+  //configure I2C IO LED Pin (Pin 1) for output
+  command_buffer[0] = 0x03; //write command register
+  command_buffer[1] = 0xFE; //set pin 0 as an output
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
+
+  //configure light sensor
+  command_buffer[0] = 0x80; //address for control register
+  command_buffer[1] = 0x01; //power on
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
+  HAL_Delay(3); //delay for 3 ms
+  command_buffer[1] = 0x03; //enable analog
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
+  command_buffer[0] = 0x81; //address for integration time register
+  command_buffer[1] = 0x00; //maximum integration time
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
+  command_buffer[0] = 0x8F; //address for RGBC Gain Control
+  command_buffer[1] = 0x02; //16x gain
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
+}
+
+uint16_t I2C_Read_Temp(void){
+  uint8_t rx_data[2];
+  uint8_t tx_data[1];
+  tx_data[0] = 0x05; //Ta address
+  //write address then read back temp data
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_TEMP_SENSOR_ADDR, tx_data, 1, I2C_TIMEOUT);
+
+  debug = HAL_I2C_Master_Receive(&hi2c1, I2C_TEMP_SENSOR_ADDR, rx_data, 2, I2C_TIMEOUT);
+  return (rx_data[1] | (rx_data[0]<<8));
+}
+
+void I2C_Enable_Light(void){
+  //pin 0 on I2C MUX
+  uint8_t command_buffer[2];
+  command_buffer[0] = 0x01; //output port register
+  command_buffer[1] = 0x01; //turn on pin 1
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
+}
+
+void I2C_Disable_Light(void){
+  //pin 0 on I2C MUX
+  uint8_t command_buffer[2];
+  command_buffer[0] = 0x01; //output port register
+  command_buffer[1] = 0x00; //turn off pin 1
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
+}
+
+void I2C_Measure_Light(uint16_t colors[4]){
+  //yes, clear is a color
+  //return in order RGBC
+  uint8_t command_buffer[1];
+  uint8_t read_buffer[8];
+
+  command_buffer[0] = 0xB4; //consecutive read out, base address of clear
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
+  
+  debug = HAL_I2C_Master_Receive(&hi2c1, I2C_COLOR_SENSOR_ADDR, read_buffer, 8, I2C_TIMEOUT);
+
+  //transpose results
+  colors[3] = read_buffer[0] | (read_buffer[1]<<8); //clear
+  colors[0] = read_buffer[2] | (read_buffer[3]<<8); //red
+  colors[1] = read_buffer[4] | (read_buffer[5]<<8); //green
+  colors[2] = read_buffer[6] | (read_buffer[7]<<8); //blue
+
+}
+
+/* System Clock Configuration*/
 void SystemClock_Config(void)
 {
 
@@ -150,6 +247,9 @@ void MX_I2C1_Init(void)
   hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLED;
+
+  HAL_I2C_MspInit(&hi2c1);
+
   HAL_I2C_Init(&hi2c1);
 
     /**Configure Analogue filter 
@@ -192,36 +292,5 @@ void MX_GPIO_Init(void)
 
 }
 
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
-#ifdef USE_FULL_ASSERT
-
-/**
-   * @brief Reports the name of the source file and the source line number
-   * where the assert_param error has occurred.
-   * @param file: pointer to the source file name
-   * @param line: assert_param error line source number
-   * @retval None
-   */
-void assert_failed(uint8_t* file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-    ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
-
-}
-
-#endif
-
-/**
-  * @}
-  */ 
-
-/**
-  * @}
-*/ 
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
