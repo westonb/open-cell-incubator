@@ -34,6 +34,9 @@
 #include "stm32f0xx_hal.h"
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
+//#include <stdio.h>
+//#include <stdlib.h>
+//#include <string.h>
 
 //i2c timeout is in interval of systemtick
 //HAL library reads as a 8 bit addresss, bitshifting required!
@@ -46,6 +49,7 @@
 #define I2C_COLOR_SENSOR_ADDR 0x29<<1 //TCS34725
 #define I2C_TIMEOUT 100000
 
+#define SAMPLE_DELAY 30000
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
@@ -62,14 +66,19 @@ void I2C_Disable_Light(void);
 void I2C_Measure_Light(uint16_t colors[4]);
 
 volatile uint32_t i = 0;
-volatile uint16_t temp;
+volatile uint16_t temp = 0;
 volatile HAL_StatusTypeDef debug; 
 
+ 
+ char status_buff[16];
+ char temp_buff[16];
+ char color_buff[16];
+ char newline[] = "\r\n";
+ int test_numb;
+ uint16_t color_buffer[4];
 
 int main(void)
 {
-
-  /* MCU Configuration----------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
@@ -84,36 +93,52 @@ int main(void)
   MX_I2C1_Init();
   MX_USB_DEVICE_Init();
 
-
   //init board 
   //enable power outputs
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_2|GPIO_PIN_4|GPIO_PIN_6, GPIO_PIN_SET);
 
-
-
   I2C_Change_Chanel(0);
   I2C_Flask_Sensor_Config();
+
+  I2C_Change_Chanel(1);
+  I2C_Flask_Sensor_Config();
+
   while (1)
   {
+
+  //use light on channel 0, read temp and light from channel 1
+  HAL_Delay(SAMPLE_DELAY); // 10 seconds
   
-	i++;
-  HAL_Delay(500);
-  //uint8_t HiMsg[]="hello\r\n";
-  //CDC_Transmit_FS(HiMsg,strlen(HiMsg));
-  //temp = I2C_Read_Temp();
-  //I2C_Change_Chanel(0);
-  uint8_t command_buffer[2];
-
-  //configure I2C IO LED Pin (Pin 1) for output
-  command_buffer[0] = 0x03; //write command register
-  command_buffer[1] = 0xFE; //set pin 0 as an output
-  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
-  HAL_Delay(500);
+  I2C_Change_Chanel(0); //turn to channel 0 turn on light
   I2C_Enable_Light();
-  HAL_Delay(500);
+
+  I2C_Change_Chanel(1); //turn to channel 1 and read temp
+  
+  temp = I2C_Read_Temp();
+  snprintf(temp_buff, 16, "Temp: %d", (int) ((temp & 0x1FFF)>>4));
+  CDC_Transmit_FS(temp_buff,strlen(temp_buff));
+  snprintf(temp_buff,16, ".%04d \r\n", (int)(625*(temp & 0xF))); 
+  CDC_Transmit_FS(temp_buff,strlen(temp_buff));
+  //delay for one second for light reading
+  HAL_Delay(1200);
+
+  //read color
+  I2C_Measure_Light(color_buffer);
+  snprintf(color_buff, 16, "Red: %d \r\n", (int) color_buffer[0]);
+  CDC_Transmit_FS(color_buff,strlen(color_buff)); 
+  HAL_Delay(5);
+  snprintf(color_buff, 16, "Green: %d \r\n", (int) color_buffer[1]);
+  CDC_Transmit_FS(color_buff, strlen(color_buff));
+  HAL_Delay(5);
+  snprintf(color_buff, 16, "Blue: %d \r\n", (int) color_buffer[2]);
+  CDC_Transmit_FS(color_buff, strlen(color_buff));
+  HAL_Delay(5);
+  snprintf(color_buff, 16, "Clear: %d \r\n", (int) color_buffer[3]);
+  CDC_Transmit_FS(color_buff, strlen(color_buff));
+  HAL_Delay(5);
+  CDC_Transmit_FS(newline, strlen(newline));
+  I2C_Change_Chanel(0); //disable light
   I2C_Disable_Light();
-
-
 
   }
 
@@ -138,18 +163,33 @@ void I2C_Flask_Sensor_Config(void){
   command_buffer[1] = 0xFE; //set pin 0 as an output
   debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
 
+  //requires two attempts for unknown reasons.
+  //configure I2C IO LED Pin (Pin 1) for output
+  command_buffer[0] = 0x03; //write command register
+  command_buffer[1] = 0xFE; //set pin 0 as an output
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
+
+  //make sure LED is off
+  command_buffer[0] = 0x01; //output port register
+  command_buffer[1] = 0x00; //turn off pin 1
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_IO_ADDR, command_buffer, 2, I2C_TIMEOUT);
   //configure light sensor
   command_buffer[0] = 0x80; //address for control register
   command_buffer[1] = 0x01; //power on
   debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
   HAL_Delay(3); //delay for 3 ms
+  command_buffer[0] = 0x80; //address for control register
+  command_buffer[1] = 0x01; //power on
+  debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
+  HAL_Delay(3); //delay for 3 ms
+
   command_buffer[1] = 0x03; //enable analog
   debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
   command_buffer[0] = 0x81; //address for integration time register
   command_buffer[1] = 0x00; //maximum integration time
   debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
   command_buffer[0] = 0x8F; //address for RGBC Gain Control
-  command_buffer[1] = 0x02; //16x gain
+  command_buffer[1] = 0x01; //4x gain
   debug = HAL_I2C_Master_Transmit(&hi2c1, I2C_COLOR_SENSOR_ADDR, command_buffer, 2, I2C_TIMEOUT);
 }
 

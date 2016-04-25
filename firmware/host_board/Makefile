@@ -18,10 +18,10 @@ INC += -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc -IMiddlewares/ST/STM32
 AFLAGS  = -mlittle-endian -mthumb -mcpu=cortex-m0 -march=armv6-m
 CFLAGS  = $(AFLAGS) -g -O1 $(INC) -std=c99 -Wall #debugging flag is on this line
 CFLAGS += -mlittle-endian -mcpu=cortex-m0  -march=armv6-m -mthumb
-CFLAGS += -DSTM32F072xB
+CFLAGS += -DSTM32F072xB --specs=nosys.specs #testing this
 CFLAGS += -fdata-sections -ffunction-sections
 #LFLAGS  = $(CFLAGS) -nostartfiles -Tflash.ld -Wl,-Map=main.map -Wl,--gc-sections
-LFLAGS  = $(CFLAGS) -Tflash.ld -Wl,-Map=main.map -Wl,--gc-sections -mthumb -mcpu=cortex-m0 -march=armv6-m
+LFLAGS  = $(CFLAGS) -Tflash.ld -Wl,-Map=main.map -Wl,--gc-sections -mthumb -mcpu=cortex-m0 -march=armv6-m -lnosys  #testing this
 
 # Targets
 all: main.bin

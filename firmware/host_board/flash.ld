@@ -1,94 +1,158 @@
+/*
+*****************************************************************************
+**
+**  File        : stm32_flash.ld
+**
+**  Abstract    : Linker script for STM32F072 Device with
+**                128KByte FLASH, 16KByte RAM
+**
+**                Set heap size, stack size and stack location according
+**                to application requirements.
+**
+**                Set memory bank area and size if external memory is used.
+**
+**  Target      : STMicroelectronics STM32
+**
+**
+**  Distribution: The file is distributed “as is,” without any warranty
+**                of any kind.
+**
+**
+*****************************************************************************
+*/
+
+/* Entry Point */
 ENTRY(Reset_Handler)
 
+/* Highest address of the user mode stack */
+_estack = 0x20002000;    /* end of 8K RAM */
+
+/* Generate a link error if heap and stack don't fit into RAM */
+_Min_Heap_Size = 0;      /* required amount of heap  */
+_Min_Stack_Size = 0x80; /* required amount of stack */
+
+/* Specify the memory areas */
 MEMORY
 {
-  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 128K
-  RAM (rwx)  : ORIGIN = 0x20000000, LENGTH = 16K
+  FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 128K
+  RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 16K
 }
-_estack = ORIGIN(RAM) + LENGTH(RAM);
 
+/* Define output sections */
 SECTIONS
 {
-    /* for Cortex devices, the beginning of the startup code is stored in the .isr_vector section, which goes to FLASH */
-    .isr_vector :
-    {
-	. = ALIGN(4);
-        KEEP(*(.isr_vector))            /* Startup code */
-	. = ALIGN(4);
-    } >FLASH
-    
-    /* the program code is stored in the .text section, which goes to Flash */
-    .text :
-    {
-	    . = ALIGN(4);
-	    
-        *(.text)                   /* normal code */
-        *(.text.*)                 /* -ffunction-sections code */
-        *(.rodata)                 /* read-only data (constants) */
-        *(.rodata*)                /* -fdata-sections read only data */
-        *(.glue_7)                 /* TBD - needed ? */
-        *(.glue_7t)                /* TBD - needed ? */
+  /* The startup code goes first into FLASH */
+  .isr_vector :
+  {
+    . = ALIGN(4);
+    KEEP(*(.isr_vector)) /* Startup code */
+    . = ALIGN(4);
+  } >FLASH
 
-	/* Necessary KEEP sections (see http://sourceware.org/ml/newlib/2005/msg00255.html) */
-	KEEP (*(.init))
-	KEEP (*(.fini))
-	
-	    . = ALIGN(4);
-        _etext = .;
-	    /* This is used by the startup in order to initialize the .data section */
-        _sidata = _etext;
-    } >FLASH
-    
-    /* This is the initialized data section
-    The program executes knowing that the data is in the RAM
-    but the loader puts the initial values in the FLASH (inidata).
-    It is one task of the startup to copy the initial values from FLASH to RAM. */
-    .data  : AT ( _sidata )
-    {
-	    . = ALIGN(4);
-        /* This is used by the startup in order to initialize the .data secion */
-        _sdata = . ;
-        _data = . ;
-        
-        *(.data)
-        *(.data.*)
-        *(.RAMtext)
+  /* The program code and other data goes into FLASH */
+  .text :
+  {
+    . = ALIGN(4);
+    *(.text)           /* .text sections (code) */
+    *(.text*)          /* .text* sections (code) */
+    *(.glue_7)         /* glue arm to thumb code */
+    *(.glue_7t)        /* glue thumb to arm code */
+    *(.eh_frame)
 
-	    . = ALIGN(4);
-	    /* This is used by the startup in order to initialize the .data secion */
-   	    _edata = . ;
-    } >RAM
-    
-    /* This is the uninitialized data section */
-    .bss :
-    {
-	    . = ALIGN(4);
-        /* This is used by the startup in order to initialize the .bss secion */
-        _sbss = .;
-        _bss = .;
-        
-        *(.bss)
-        *(.bss.*) /* patched by elias - allows the use of -fdata-sections */
-        *(COMMON)
-        
-	    . = ALIGN(4);
-	    /* This is used by the startup in order to initialize the .bss secion */
-   	 _ebss = . ;
-    } >RAM
-    
-    PROVIDE ( end = _ebss );
-    PROVIDE ( _end = _ebss );
-    
+    KEEP (*(.init))
+    KEEP (*(.fini))
+
+    . = ALIGN(4);
+    _etext = .;        /* define a global symbols at end of code */
+  } >FLASH
+
+  /* Constant data goes into FLASH */
+  .rodata :
+  {
+    . = ALIGN(4);
+    *(.rodata)         /* .rodata sections (constants, strings, etc.) */
+    *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
+    . = ALIGN(4);
+  } >FLASH
+
+  .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH
+  .ARM : {
     __exidx_start = .;
+    *(.ARM.exidx*)
     __exidx_end = .;
-    
-    /* after that it's only debugging information. */
-    
-    /* remove the debugging information from the standard libraries */
-    /DISCARD/ :
-    {
-     libc.a ( * )
-     libm.a ( * )
-     libgcc.a ( * )
-     }
+  } >FLASH
+
+  .preinit_array     :
+  {
+    PROVIDE_HIDDEN (__preinit_array_start = .);
+    KEEP (*(.preinit_array*))
+    PROVIDE_HIDDEN (__preinit_array_end = .);
+  } >FLASH
+  .init_array :
+  {
+    PROVIDE_HIDDEN (__init_array_start = .);
+    KEEP (*(SORT(.init_array.*)))
+    KEEP (*(.init_array*))
+    PROVIDE_HIDDEN (__init_array_end = .);
+  } >FLASH
+  .fini_array :
+  {
+    PROVIDE_HIDDEN (__fini_array_start = .);
+    KEEP (*(SORT(.fini_array.*)))
+    KEEP (*(.fini_array*))
+    PROVIDE_HIDDEN (__fini_array_end = .);
+  } >FLASH
+
+  /* used by the startup to initialize data */
+  _sidata = LOADADDR(.data);
+
+  /* Initialized data sections goes into RAM, load LMA copy after code */
+  .data : 
+  {
+    . = ALIGN(4);
+    _sdata = .;        /* create a global symbol at data start */
+    *(.data)           /* .data sections */
+    *(.data*)          /* .data* sections */
+
+    . = ALIGN(4);
+    _edata = .;        /* define a global symbol at data end */
+  } >RAM AT> FLASH
+
+  /* Uninitialized data section */
+  . = ALIGN(4);
+  .bss :
+  {
+    /* This is used by the startup in order to initialize the .bss secion */
+    _sbss = .;         /* define a global symbol at bss start */
+    __bss_start__ = _sbss;
+    *(.bss)
+    *(.bss*)
+    *(COMMON)
+
+    . = ALIGN(4);
+    _ebss = .;         /* define a global symbol at bss end */
+    __bss_end__ = _ebss;
+  } >RAM
+
+  /* User_heap_stack section, used to check that there is enough RAM left */
+  ._user_heap_stack :
+  {
+    . = ALIGN(4);
+    PROVIDE ( end = . );
+    PROVIDE ( _end = . );
+    . = . + _Min_Heap_Size;
+    . = . + _Min_Stack_Size;
+    . = ALIGN(4);
+  } >RAM
+
+
+  /* Remove information from the standard libraries */
+  /DISCARD/ :
+  {
+    libc.a ( * )
+    libm.a ( * )
+    libgcc.a ( * )
+  }
+
+  .ARM.attributes 0 : { *(.ARM.attributes) }
 }
