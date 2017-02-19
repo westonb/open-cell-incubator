@@ -1,4 +1,5 @@
 EESchema Schematic File Version 2
+LIBS:host_board-rescue
 LIBS:power
 LIBS:device
 LIBS:transistors
@@ -34,7 +35,7 @@ EELAYER 25 0
 EELAYER END
 $Descr A4 11693 8268
 encoding utf-8
-Sheet 3 4
+Sheet 4 4
 Title ""
 Date ""
 Rev ""
@@ -56,9 +57,11 @@ F 3 "" H 3800 2300 60  0000 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L USB_OTG P301
+L USB_OTG-RESCUE-host_board P301
 U 1 1 56B6EFE2
 P 900 1700
+AR Path="/56B6EFE2" Ref="P301"  Part="1" 
+AR Path="/56B5763E/56B6EFE2" Ref="P301"  Part="1" 
 F 0 "P301" H 1225 1575 50  0000 C CNN
 F 1 "USB_OTG" H 900 1900 50  0000 C CNN
 F 2 "Connect:USB_Micro-B_10103594-0001LF" V 850 1600 50  0001 C CNN
